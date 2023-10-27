@@ -6,26 +6,43 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
-from matplotlib.backends.backend_qt6agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-
+# This is the widget that displays the current total probability map for the user.
 class HeatmapWidget(FigureCanvas):
-    def __init__(self, parent=None):
+    def __init__(self, data, parent=None):  
         fig = Figure()
         self.axes = fig.add_subplot(111)
         super().__init__(fig)
         self.setParent(parent)
 
-        # This is the data you will likely get from your probability map
-        # Just an example; you should replace this with your actual data
-        data = np.random.rand(10, 10)
+        # Use the provided data to create the heatmap
+        self.cax = self.axes.imshow(data, cmap="hot", interpolation="nearest")
+        
+        # Add the colorbar
+        self.colorbar = self.figure.colorbar(self.cax)
+        self.colorbar.set_label("Probability")
 
-        # Create the heatmap using imshow
-        self.axes.imshow(data, cmap="hot", interpolation="nearest")
+        # Set x-ticks
+        self.axes.set_xticks(range(data.shape[1]))
+        self.axes.set_xticklabels(range(1, data.shape[1] + 1))
 
-        # You might want to set up the axes labels, title, etc.pip install
+        # Set y-ticks
+        letters = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        self.axes.set_yticks(range(data.shape[0]))
+        self.axes.set_yticklabels(letters[:data.shape[0]])
 
+        self.axes.xaxis.tick_top()
+        
+    def update_data(self, data):
+        self.cax.set_data(data)  # Simply update the data of the imshow object
+        self.cax.autoscale()  # Rescale the colormap based on the new data
+        self.draw()  # Redraw the canvas with updated data
+
+
+
+# This is used in the BattleShip grid to prevent mouse scrolls from selecting values
 class NoScrollComboBox(QComboBox):
     def __init__(self, *args, **kwargs):
         super(NoScrollComboBox, self).__init__(*args, **kwargs)
@@ -34,6 +51,7 @@ class NoScrollComboBox(QComboBox):
         # Ignore the wheel event
         event.ignore()
 
+# This is the widget that the user updates sunk/available ships or clears/resets the game
 class ControlPanel(QWidget):
     def __init__(self, app, parent=None):
         super().__init__(parent)
@@ -78,7 +96,7 @@ class ControlPanel(QWidget):
         # Implementation of toggle_ship remains the same
         pass  # Placeholder
 
-
+# This is the grid that the user updates with hits/misses
 class BattleshipGrid(QTableWidget):
     def __init__(self, rows, cols, app):
         super().__init__(rows, cols)
@@ -168,6 +186,8 @@ class BattleshipGrid(QTableWidget):
                         for r in range(row, row + ship_size):
                             probability_map[r][col] += 1
 
+        self.app.update_heatmap()
+
         # The method updates the probability map in place, so no need to return anything
 
 
@@ -218,7 +238,6 @@ class BattleshipApp(QMainWindow):
         super().__init__()
         self.rows = rows
         self.cols = cols
-
         # Initialize a separate probability map for each ship type
         self.ship_probability_maps = {
             ship_type: [[0] * self.cols for _ in range(self.rows)] for ship_type in self.SHIP_SIZES
@@ -231,7 +250,7 @@ class BattleshipApp(QMainWindow):
             self.battleship_grid.calculate_ship_positions(ship_type)
 
         # Explicitly update the probability grid after calculating ship positions
-        self.probability_grid.update_grid()
+        # self.probability_grid.update_grid()
 
     def init_ui(self):
         # Set main window properties
@@ -253,11 +272,11 @@ class BattleshipApp(QMainWindow):
         vbox_layout.addWidget(self.battleship_grid)
 
         # Create the grid for displaying probabilities
-        self.probability_grid = ProbabilityGrid(self.rows, self.cols, self)
+        # self.probability_grid = ProbabilityGrid(self.rows, self.cols, self)
         # vbox_layout.addWidget(self.probability_grid)
 
         # Create and add the heatmap widget
-        self.heatmap_widget = HeatmapWidget()
+        self.heatmap_widget = HeatmapWidget(data=self.calculate_total_probability_map())
         vbox_layout.addWidget(self.heatmap_widget)
 
         self.print_probability_map = QPushButton("Print Probability Maps")
@@ -274,6 +293,22 @@ class BattleshipApp(QMainWindow):
         # Show the main window
         self.show()
 
+    def calculate_total_probability_map(self):
+        # Calculate the sum of probabilities for each cell to get the overall probability map
+        total_probability_map = [[0] * self.cols for _ in range(self.rows)]
+        for ship_map in self.ship_probability_maps.values():
+            for row in range(self.rows):
+                for col in range(self.cols):
+                    total_probability_map[row][col] += ship_map[row][col]
+        return np.array(total_probability_map)
+
+    def update_heatmap(self):
+        # Calculate the sum of probabilities for each cell to get the overall probability map
+        total_probability_map = self.calculate_total_probability_map()
+
+        # Update the heatmap with the new data
+        self.heatmap_widget.update_data(np.array(total_probability_map))
+        
     def print_probability_map_clicked(self):
         print(self.ship_probability_maps)
 
